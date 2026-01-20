@@ -482,6 +482,8 @@ class _GraphViewState extends State<_GraphView> {
   String _rootId = 'me';
   String? _hoveredBranchId;
   bool _showFocusRing = false;
+  final Map<String, Offset> _branchOffsets = {};
+  bool _panEnabled = true;
 
   void _openPersonSheet(BuildContext context, Person person) {
     showModalBottomSheet<void>(
@@ -519,6 +521,8 @@ class _GraphViewState extends State<_GraphView> {
     _transformController.value = currentMatrix.scaled(scale);
   }
 
+  double get _currentScale => _transformController.value.getMaxScaleOnAxis();
+
   void _resetView() {
     _transformController.value = Matrix4.identity();
     _flashCenter();
@@ -545,6 +549,21 @@ class _GraphViewState extends State<_GraphView> {
         setState(() => _showFocusRing = false);
       }
     });
+  }
+
+  void _updateBranchOffset(String id, Offset delta) {
+    final scaledDelta = Offset(delta.dx / _currentScale, delta.dy / _currentScale);
+    setState(() {
+      final current = _branchOffsets[id] ?? Offset.zero;
+      _branchOffsets[id] = current + scaledDelta;
+    });
+  }
+
+  void _setPanEnabled(bool value) {
+    if (_panEnabled == value) {
+      return;
+    }
+    setState(() => _panEnabled = value);
   }
   List<Person> _parentsOf(String id) {
     return _relations
@@ -588,7 +607,10 @@ class _GraphViewState extends State<_GraphView> {
   }
 
   void _setRoot(String id) {
-    setState(() => _rootId = id);
+    setState(() {
+      _rootId = id;
+      _branchOffsets.clear();
+    });
     _resetView();
   }
 
@@ -735,6 +757,8 @@ class _GraphViewState extends State<_GraphView> {
                       transformationController: _transformController,
                       minScale: 0.6,
                       maxScale: 2.4,
+                      panEnabled: _panEnabled,
+                      scaleEnabled: _panEnabled,
                       boundaryMargin: const EdgeInsets.all(120),
                       child: SizedBox(
                         key: _viewerKey,
@@ -754,11 +778,14 @@ class _GraphViewState extends State<_GraphView> {
                                     partners: _partnersOf(_rootId),
                                     children: _childrenOf(_rootId),
                                     canvasSize: _canvasSize,
+                                    branchOffsets: _branchOffsets,
                                     hoveredId: _hoveredBranchId,
                                     onHover: _setHovered,
                                     onOpenPerson: (person) => _setRoot(person.id),
                                     onOpenSheet: (person) => _openPersonSheet(context, person),
                                     onCenter: _centerOnNode,
+                                    onDragStateChange: _setPanEnabled,
+                                    onDragBranch: _updateBranchOffset,
                                     onAddRelation: (branchId) => _showAddRelationSheet(
                                       context,
                                       branchId,
@@ -831,6 +858,25 @@ class _GraphViewState extends State<_GraphView> {
                       ),
                     ),
                   ),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    child: _GraphMiniToolbar(
+                      onAdd: () => _showAddRelationSheet(
+                        context,
+                        'parents',
+                        _extractYear((_personById(_rootId)?.subtitle ?? '')),
+                        (name, subtitle, year) => _addRelation(
+                          branchId: 'parents',
+                          name: name,
+                          subtitle: subtitle,
+                          year: year,
+                        ),
+                      ),
+                      onShare: () {},
+                      onExport: () {},
+                    ),
+                  ),
                   const Positioned(
                     left: 16,
                     top: 16,
@@ -855,11 +901,14 @@ class _RecursiveGraph extends StatelessWidget {
     required this.partners,
     required this.children,
     required this.canvasSize,
+    required this.branchOffsets,
     required this.hoveredId,
     required this.onHover,
     required this.onOpenPerson,
     required this.onOpenSheet,
     required this.onCenter,
+    required this.onDragStateChange,
+    required this.onDragBranch,
     required this.onAddRelation,
   });
 
@@ -870,11 +919,14 @@ class _RecursiveGraph extends StatelessWidget {
   final List<Person> partners;
   final List<Person> children;
   final Size canvasSize;
+  final Map<String, Offset> branchOffsets;
   final String? hoveredId;
   final ValueChanged<String?> onHover;
   final ValueChanged<Person> onOpenPerson;
   final ValueChanged<Person> onOpenSheet;
   final ValueChanged<Offset> onCenter;
+  final ValueChanged<bool> onDragStateChange;
+  final void Function(String id, Offset delta) onDragBranch;
   final ValueChanged<String> onAddRelation;
 
   @override
@@ -887,7 +939,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Parents',
         subtitle: parents.isNotEmpty ? _namesPreview(parents) : 'Ajouter',
         targets: parents,
-        position: center + const Offset(0, -220),
+        position: center + const Offset(0, -220) + (branchOffsets['parents'] ?? Offset.zero),
         color: _branchColor('parents'),
       ),
       _BranchNodeData(
@@ -895,7 +947,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Grands-parents',
         subtitle: grandParents.isNotEmpty ? _namesPreview(grandParents) : 'Ajouter',
         targets: grandParents,
-        position: center + const Offset(0, -340),
+        position: center + const Offset(0, -340) + (branchOffsets['grandparents'] ?? Offset.zero),
         color: _branchColor('grandparents'),
       ),
       _BranchNodeData(
@@ -903,7 +955,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Frère',
         subtitle: siblings.isNotEmpty ? _namesPreview(siblings) : 'Ajouter',
         targets: siblings,
-        position: center + const Offset(-260, -20),
+        position: center + const Offset(-260, -20) + (branchOffsets['brother'] ?? Offset.zero),
         color: _branchColor('brother'),
       ),
       _BranchNodeData(
@@ -911,7 +963,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Sœur',
         subtitle: siblings.isNotEmpty ? _namesPreview(siblings) : 'Ajouter',
         targets: siblings,
-        position: center + const Offset(-260, 60),
+        position: center + const Offset(-260, 60) + (branchOffsets['sister'] ?? Offset.zero),
         color: _branchColor('sister'),
       ),
       _BranchNodeData(
@@ -919,7 +971,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Conjoint',
         subtitle: partners.isNotEmpty ? _namesPreview(partners) : 'Ajouter',
         targets: partners,
-        position: center + const Offset(260, 0),
+        position: center + const Offset(260, 0) + (branchOffsets['partner'] ?? Offset.zero),
         color: _branchColor('partner'),
       ),
       _BranchNodeData(
@@ -927,7 +979,7 @@ class _RecursiveGraph extends StatelessWidget {
         label: 'Enfants',
         subtitle: children.isNotEmpty ? _namesPreview(children) : 'Ajouter',
         targets: children,
-        position: center + const Offset(0, 260),
+        position: center + const Offset(0, 260) + (branchOffsets['children'] ?? Offset.zero),
         color: _branchColor('children'),
       ),
     ];
@@ -953,6 +1005,8 @@ class _RecursiveGraph extends StatelessWidget {
             data: branches[i],
             isHovered: hoveredId == branches[i].id,
             delayMs: 80 * i,
+            onDrag: (delta) => onDragBranch(branches[i].id, delta),
+            onDragStateChange: onDragStateChange,
             onHover: (value) => onHover(value ? branches[i].id : null),
             onTap: () {
               final branch = branches[i];
@@ -1116,6 +1170,8 @@ class _RelationBranchBubble extends StatelessWidget {
     required this.data,
     required this.isHovered,
     required this.delayMs,
+    required this.onDrag,
+    required this.onDragStateChange,
     required this.onHover,
     required this.onTap,
   });
@@ -1123,6 +1179,8 @@ class _RelationBranchBubble extends StatelessWidget {
   final _BranchNodeData data;
   final bool isHovered;
   final int delayMs;
+  final ValueChanged<Offset> onDrag;
+  final ValueChanged<bool> onDragStateChange;
   final ValueChanged<bool> onHover;
   final VoidCallback onTap;
 
@@ -1138,6 +1196,10 @@ class _RelationBranchBubble extends StatelessWidget {
           onExit: (_) => onHover(false),
           child: GestureDetector(
             onTap: onTap,
+            onPanStart: (_) => onDragStateChange(false),
+            onPanUpdate: (details) => onDrag(details.delta),
+            onPanEnd: (_) => onDragStateChange(true),
+            onPanCancel: () => onDragStateChange(true),
             child: AnimatedScale(
               duration: const Duration(milliseconds: 140),
               scale: isHovered ? 1.03 : 1,
@@ -1613,6 +1675,77 @@ class _GraphMiniLegend extends StatelessWidget {
           _MiniLegendDot(label: 'Fratrie', color: Color(0xFFB5E5C8)),
           _MiniLegendDot(label: 'Conjoint', color: Color(0xFFF2B5B5)),
         ],
+      ),
+    );
+  }
+}
+
+class _GraphMiniToolbar extends StatelessWidget {
+  const _GraphMiniToolbar({
+    required this.onAdd,
+    required this.onShare,
+    required this.onExport,
+  });
+
+  final VoidCallback onAdd;
+  final VoidCallback onShare;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(235),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE3E7F2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(10),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _GraphToolbarButton(icon: Icons.add, tooltip: 'Ajouter', onTap: onAdd),
+          const SizedBox(width: 6),
+          _GraphToolbarButton(icon: Icons.share_outlined, tooltip: 'Partager', onTap: onShare),
+          const SizedBox(width: 6),
+          _GraphToolbarButton(icon: Icons.download_outlined, tooltip: 'Exporter', onTap: onExport),
+        ],
+      ),
+    );
+  }
+}
+
+class _GraphToolbarButton extends StatelessWidget {
+  const _GraphToolbarButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Tooltip(
+          message: tooltip,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+          ),
+        ),
       ),
     );
   }
