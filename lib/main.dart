@@ -1,12 +1,32 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:syncfusion_flutter_core/core.dart';
+
+import 'src/platform_file.dart';
+
+part 'parts/models_part.dart';
+part 'parts/shared_part.dart';
+part 'parts/app_part.dart';
+part 'parts/dashboard_part.dart';
+part 'parts/graph_part.dart';
+part 'parts/views_part.dart';
+part 'parts/person_part.dart';
 
 final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SyncfusionLicense.registerLicense(
+    'Ngo9BigBOggjHTQxAR8/V1JGaF5cXGpCfEx3THxbf1x2ZFJMY1pbRnFPMyBoS35RcEViW39ed3BRRGlVUUJwVEFf',
+  );
   await Hive.initFlutter();
   await _initializeNotifications();
   runApp(const EgoProxyApp());
@@ -22,734 +42,7 @@ Future<void> _initializeNotifications() async {
   );
   await _notificationsPlugin.initialize(settings);
 }
-
-class EgoProxyApp extends StatelessWidget {
-  const EgoProxyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF1A73E8),
-      brightness: Brightness.light,
-    );
-
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Ego Proxy',
-      theme: ThemeData(
-        colorScheme: colorScheme,
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF8F9FB),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          backgroundColor: Color(0xFFF8F9FB),
-          surfaceTintColor: Color(0xFFF8F9FB),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          color: Colors.white,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          hintStyle: TextStyle(color: Colors.black.withAlpha(120)),
-          prefixIconColor: Colors.black45,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(999),
-            borderSide: BorderSide.none,
-          ),
-        ),
-      ),
-      home: const DashboardShell(),
-    );
-  }
-}
-
-enum RelationType {
-  parent,
-  child,
-  sibling,
-  partner,
-}
-
-class Person {
-  const Person({
-    required this.id,
-    required this.name,
-    required this.subtitle,
-    this.isVerified = false,
-  });
-
-  final String id;
-  final String name;
-  final String subtitle;
-  final bool isVerified;
-}
-
-class Relationship {
-  const Relationship({
-    required this.fromId,
-    required this.toId,
-    required this.type,
-  });
-
-  final String fromId;
-  final String toId;
-  final RelationType type;
-}
-
-class SampleData {
-  static const me = Person(
-    id: 'me',
-    name: 'Alex Martin',
-    subtitle: 'Né(e) le 12/04/1992 · Paris',
-    isVerified: true,
-  );
-
-  static const persons = <Person>[
-    me,
-    Person(id: 'father', name: 'Jean Martin', subtitle: 'Père · 1965'),
-    Person(id: 'mother', name: 'Marie Martin', subtitle: 'Mère · 1967'),
-    Person(id: 'grandpa_f', name: 'Pierre Martin', subtitle: 'Grand-père · 1940'),
-    Person(id: 'grandma_f', name: 'Lucie Martin', subtitle: 'Grand-mère · 1942'),
-    Person(id: 'grandpa_m', name: 'André Durand', subtitle: 'Grand-père · 1938'),
-    Person(id: 'grandma_m', name: 'Claire Durand', subtitle: 'Grand-mère · 1943'),
-    Person(id: 'sibling', name: 'Paul Martin', subtitle: 'Frère · 1990'),
-    Person(id: 'sister', name: 'Emma Martin', subtitle: 'Sœur · 1995'),
-    Person(id: 'partner', name: 'Camille Durand', subtitle: 'Conjoint · 1993'),
-    Person(id: 'child1', name: 'Lina Martin', subtitle: 'Enfant · 2018'),
-    Person(id: 'child2', name: 'Noah Martin', subtitle: 'Enfant · 2021'),
-  ];
-
-  static const relations = <Relationship>[
-    Relationship(fromId: 'grandpa_f', toId: 'father', type: RelationType.parent),
-    Relationship(fromId: 'grandma_f', toId: 'father', type: RelationType.parent),
-    Relationship(fromId: 'grandpa_m', toId: 'mother', type: RelationType.parent),
-    Relationship(fromId: 'grandma_m', toId: 'mother', type: RelationType.parent),
-    Relationship(fromId: 'father', toId: 'me', type: RelationType.parent),
-    Relationship(fromId: 'mother', toId: 'me', type: RelationType.parent),
-    Relationship(fromId: 'me', toId: 'sibling', type: RelationType.sibling),
-    Relationship(fromId: 'me', toId: 'sister', type: RelationType.sibling),
-    Relationship(fromId: 'me', toId: 'partner', type: RelationType.partner),
-    Relationship(fromId: 'me', toId: 'child1', type: RelationType.child),
-    Relationship(fromId: 'me', toId: 'child2', type: RelationType.child),
-  ];
-}
-
-class DashboardShell extends StatefulWidget {
-  const DashboardShell({super.key});
-
-  @override
-  State<DashboardShell> createState() => _DashboardShellState();
-}
-
-class _DashboardShellState extends State<DashboardShell> {
-  int _selectedIndex = 0;
-
-  void _onSelect(int index) {
-    setState(() => _selectedIndex = index);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 900;
-        return Scaffold(
-          appBar: AppBar(
-            title: const _BrandTitle(),
-            actions: [
-              SizedBox(
-                width: isWide ? 360 : 220,
-                child: TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Rechercher une personne, un lieu, un document',
-                    prefixIcon: Icon(Icons.search),
-                    contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.notifications_none),
-                tooltip: 'Notifications',
-              ),
-              const SizedBox(width: 8),
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: const Text('A', style: TextStyle(color: Colors.white)),
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
-          drawer: isWide ? null : _AppDrawer(selectedIndex: _selectedIndex, onSelect: _onSelect),
-          body: Row(
-            children: [
-              if (isWide)
-                SizedBox(
-                  width: 220,
-                  child: _Sidebar(selectedIndex: _selectedIndex, onSelect: _onSelect),
-                ),
-              Expanded(child: _DashboardContent(selectedIndex: _selectedIndex)),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.selectedIndex, required this.onSelect});
-
-  final int selectedIndex;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 4),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text('Workspace', style: TextStyle(fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F7FB),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Row(
-                children: [
-                  CircleAvatar(radius: 16, child: Text('A')),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Alex Martin', style: TextStyle(fontWeight: FontWeight.w600)),
-                        Text('Profil principal', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('Navigation', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
-          ),
-          _NavTile(
-            icon: Icons.account_tree_outlined,
-            label: 'Arbre',
-            index: 0,
-            selectedIndex: selectedIndex,
-            onTap: onSelect,
-          ),
-          _NavTile(
-            icon: Icons.people_outline,
-            label: 'Relations',
-            index: 1,
-            selectedIndex: selectedIndex,
-            onTap: onSelect,
-            trailing: _Badge(count: 3),
-          ),
-          _NavTile(
-            icon: Icons.article_outlined,
-            label: 'Documents',
-            index: 2,
-            selectedIndex: selectedIndex,
-            onTap: onSelect,
-            trailing: _Badge(count: 2),
-          ),
-          _NavTile(
-            icon: Icons.settings_outlined,
-            label: 'Paramètres',
-            index: 3,
-            selectedIndex: selectedIndex,
-            onTap: onSelect,
-          ),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('Actions rapides', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
-          ),
-          _SidebarQuickActions(
-            onAddRelation: () => onSelect(0),
-            onImport: () {},
-            onShare: () {},
-          ),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text('Progression', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12),
-            child: _SidebarProgressCard(value: 0.62),
-          ),
-          const Spacer(),
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('MVP · UI statique', style: TextStyle(color: Colors.black54)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AppDrawer extends StatelessWidget {
-  const _AppDrawer({required this.selectedIndex, required this.onSelect});
-
-  final int selectedIndex;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Drawer(
-      child: SafeArea(
-        child: _Sidebar(selectedIndex: selectedIndex, onSelect: (index) {
-          Navigator.of(context).pop();
-          onSelect(index);
-        }),
-      ),
-    );
-  }
-}
-
-class _NavTile extends StatelessWidget {
-  const _NavTile({
-    required this.icon,
-    required this.label,
-    required this.index,
-    required this.selectedIndex,
-    required this.onTap,
-    this.trailing,
-  });
-
-  final IconData icon;
-  final String label;
-  final int index;
-  final int selectedIndex;
-  final ValueChanged<int> onTap;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = index == selectedIndex;
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? Theme.of(context).colorScheme.primary : null),
-      title: Text(label),
-      selected: isSelected,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      selectedTileColor: Theme.of(context).colorScheme.primary.withAlpha(18),
-      trailing: trailing,
-      onTap: () => onTap(index),
-    );
-  }
-}
-
-class _SidebarQuickActions extends StatelessWidget {
-  const _SidebarQuickActions({
-    required this.onAddRelation,
-    required this.onImport,
-    required this.onShare,
-  });
-
-  final VoidCallback onAddRelation;
-  final VoidCallback onImport;
-  final VoidCallback onShare;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          FilledButton.icon(
-            onPressed: onAddRelation,
-            icon: const Icon(Icons.add),
-            label: const Text('Ajouter relation'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onImport,
-            icon: const Icon(Icons.upload_file),
-            label: const Text('Importer'),
-          ),
-          const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: onShare,
-            icon: const Icon(Icons.share_outlined),
-            label: const Text('Partager'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SidebarProgressCard extends StatelessWidget {
-  const _SidebarProgressCard({required this.value});
-
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    final percent = (value * 100).round();
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F7FB),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5EAF4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Arbre complété', style: TextStyle(color: Colors.black.withAlpha(160), fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: value,
-              minHeight: 8,
-              backgroundColor: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text('$percent% de données vérifiées', style: const TextStyle(color: Colors.black54, fontSize: 12)),
-        ],
-      ),
-    );
-  }
-}
-
-class _DashboardContent extends StatelessWidget {
-  const _DashboardContent({required this.selectedIndex});
-
-  final int selectedIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (selectedIndex) {
-      case 1:
-        return const _RelationsView();
-      case 2:
-        return const _DocumentsView();
-      case 3:
-        return const _SettingsView();
-      case 0:
-      default:
-        return const _GraphView();
-    }
-  }
-}
-
-class _GraphView extends StatefulWidget {
-  const _GraphView();
-
-  @override
-  State<_GraphView> createState() => _GraphViewState();
-}
-
-class _GraphViewState extends State<_GraphView> {
-  final TransformationController _transformController = TransformationController();
-  final GlobalKey _viewerKey = GlobalKey();
-  final Size _canvasSize = const Size(1200, 800);
-  final List<Person> _persons = List<Person>.from(SampleData.persons);
-  final List<Relationship> _relations = List<Relationship>.from(SampleData.relations);
-
-  String _rootId = 'me';
-  String? _hoveredBranchId;
-  bool _showFocusRing = false;
-  final Map<String, Offset> _branchOffsets = {};
-  bool _panEnabled = true;
-
-  void _openPersonSheet(BuildContext context, Person person) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => _PersonSheet(
-        person: person,
-        onUpdate: (updated) => _updatePerson(updated),
-      ),
-    );
-  }
-
-  void dispose() {
-    _transformController.dispose();
-    super.dispose();
-  }
-
-  void _setHovered(String? id) {
-    if (_hoveredBranchId == id) {
-      return;
-    }
-    setState(() => _hoveredBranchId = id);
-  }
-
-  void _zoom(double scaleDelta) {
-    final currentMatrix = _transformController.value;
-    final currentScale = currentMatrix.getMaxScaleOnAxis();
-    final newScale = (currentScale * scaleDelta).clamp(0.6, 2.4);
-    final scale = newScale / currentScale;
-    _transformController.value = currentMatrix.scaled(scale);
-  }
-
-  double get _currentScale => _transformController.value.getMaxScaleOnAxis();
-
-  void _resetView() {
-    _transformController.value = Matrix4.identity();
-    _flashCenter();
-  }
-
-  void _centerOnNode(Offset position) {
-    _flashCenter();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final box = _viewerKey.currentContext?.findRenderObject() as RenderBox?;
-      if (box == null) {
-        return;
-      }
-      final viewportSize = box.size;
-      final target = Offset(viewportSize.width / 2, viewportSize.height / 2);
-      final translation = target - position;
-      _transformController.value = Matrix4.identity()..translate(translation.dx, translation.dy);
-    });
-  }
-
-  void _flashCenter() {
-    setState(() => _showFocusRing = true);
-    Future<void>.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        setState(() => _showFocusRing = false);
-      }
-    });
-  }
-
-  void _updateBranchOffset(String id, Offset delta) {
-    final scaledDelta = Offset(delta.dx / _currentScale, delta.dy / _currentScale);
-    setState(() {
-      final current = _branchOffsets[id] ?? Offset.zero;
-      _branchOffsets[id] = current + scaledDelta;
-    });
-  }
-
-  void _setPanEnabled(bool value) {
-    if (_panEnabled == value) {
-      return;
-    }
-    setState(() => _panEnabled = value);
-  }
-  List<Person> _parentsOf(String id) {
-    return _relations
-        .where((rel) => rel.type == RelationType.parent && rel.toId == id)
-      .map((rel) => _personById(rel.fromId))
-        .whereType<Person>()
-        .toList();
-  }
-
-  List<Person> _childrenOf(String id) {
-    return _relations
-        .where((rel) => rel.type == RelationType.child && rel.fromId == id)
-      .map((rel) => _personById(rel.toId))
-        .whereType<Person>()
-        .toList();
-  }
-
-  List<Person> _partnersOf(String id) {
-    return _relations
-        .where((rel) => rel.type == RelationType.partner && (rel.fromId == id || rel.toId == id))
-      .map((rel) => _personById(rel.fromId == id ? rel.toId : rel.fromId))
-        .whereType<Person>()
-        .toList();
-  }
-
-  List<Person> _siblingsOf(String id) {
-    return _relations
-        .where((rel) => rel.type == RelationType.sibling && (rel.fromId == id || rel.toId == id))
-      .map((rel) => _personById(rel.fromId == id ? rel.toId : rel.fromId))
-        .whereType<Person>()
-        .toList();
-  }
-
-  List<Person> _grandParentsOf(String id) {
-    final parents = _parentsOf(id);
-    final grand = <Person>[];
-    for (final parent in parents) {
-      grand.addAll(_parentsOf(parent.id));
-    }
-    return grand;
-  }
-
-  void _setRoot(String id) {
-    setState(() {
-      _rootId = id;
-      _branchOffsets.clear();
-    });
-    _resetView();
-  }
-
-  Person get _rootPerson => _personById(_rootId) ?? SampleData.me;
-
-  int _relatedCount(String id) {
-    return _relations.where((rel) => rel.fromId == id || rel.toId == id).length;
-  }
-
-  Person? _personById(String id) {
-    return _persons.firstWhere((person) => person.id == id, orElse: () => SampleData.me);
-  }
-
-  void _addRelation({
-    required String branchId,
-    required String name,
-    required String subtitle,
-    required int year,
-  }) {
-    final newId = '${branchId}_${DateTime.now().millisecondsSinceEpoch}';
-    final resolvedSubtitle = _resolveSubtitle(subtitle, year);
-    final newPerson = Person(id: newId, name: name, subtitle: resolvedSubtitle);
-
-    setState(() {
-      _persons.add(newPerson);
-      switch (branchId) {
-        case 'parents':
-          _relations.add(Relationship(fromId: newId, toId: _rootId, type: RelationType.parent));
-          break;
-        case 'grandparents':
-          final parents = _parentsOf(_rootId);
-          if (parents.isNotEmpty) {
-            _relations.add(Relationship(fromId: newId, toId: parents.first.id, type: RelationType.parent));
-          } else {
-            _relations.add(Relationship(fromId: newId, toId: _rootId, type: RelationType.parent));
-          }
-          break;
-        case 'brother':
-        case 'sister':
-          _relations.add(Relationship(fromId: _rootId, toId: newId, type: RelationType.sibling));
-          break;
-        case 'partner':
-          _relations.add(Relationship(fromId: _rootId, toId: newId, type: RelationType.partner));
-          break;
-        case 'children':
-          _relations.add(Relationship(fromId: _rootId, toId: newId, type: RelationType.child));
-          break;
-      }
-    });
-
-    _setRoot(newId);
-  }
-
-  void _updatePerson(Person updated) {
-    setState(() {
-      final index = _persons.indexWhere((person) => person.id == updated.id);
-      if (index == -1) {
-        return;
-      }
-      _persons[index] = updated;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final root = _rootPerson;
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Votre arbre centré sur vous', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 6),
-                    Text('Cliquez sur une branche pour naviguer.', style: TextStyle(color: Colors.black54)),
-                  ],
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _resetView,
-                icon: const Icon(Icons.center_focus_strong, size: 18),
-                label: const Text('Recentrer'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const _GraphLegend(),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              Chip(
-                avatar: CircleAvatar(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  child: Text(root.name.substring(0, 1), style: const TextStyle(color: Colors.white)),
-                ),
-                label: Text('Centre: ${root.name}'),
-              ),
-              _CountChip(label: 'Relations', count: _relatedCount(_rootId)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Card(
-              child: Stack(
-                children: [
-                  Positioned(
-                    left: _canvasSize.width / 2 - 100,
-                    top: _canvasSize.height / 2 - 100,
-                    child: IgnorePointer(
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 250),
-                        opacity: _showFocusRing ? 1 : 0,
-                        child: AnimatedScale(
-                          duration: const Duration(milliseconds: 350),
-                          scale: _showFocusRing ? 1 : 0.92,
-                          child: Container(
-                            width: 200,
-                            height: 200,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: const Color(0xFF1A73E8).withAlpha(70), width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF1A73E8).withAlpha(25),
-                                  blurRadius: 32,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+/*
                     ),
                   ),
                   Positioned.fill(
@@ -2271,6 +1564,341 @@ class _BrandTitle extends StatelessWidget {
   }
 }
 
+class _AuthShell extends StatefulWidget {
+  const _AuthShell({required this.onSignedIn});
+
+  final VoidCallback onSignedIn;
+
+  @override
+  State<_AuthShell> createState() => _AuthShellState();
+}
+
+class _AuthShellState extends State<_AuthShell> {
+  bool _isLogin = true;
+
+  void _toggleMode() {
+    setState(() => _isLogin = !_isLogin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        color: const Color(0xFFF7F8FA),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 960;
+            final form = AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _isLogin
+                  ? _LoginCard(onSignedIn: widget.onSignedIn, onToggle: _toggleMode)
+                  : _SignUpCard(onSignedIn: widget.onSignedIn, onToggle: _toggleMode),
+            );
+
+            if (isWide) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1040),
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Row(
+                      children: [
+                        Expanded(child: _AuthHeroCard(isLogin: _isLogin)),
+                        const SizedBox(width: 40),
+                        SizedBox(width: 400, child: form),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Column(
+                    children: [
+                      _AuthHeroCard(isLogin: _isLogin),
+                      const SizedBox(height: 20),
+                      form,
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthHeroCard extends StatelessWidget {
+  const _AuthHeroCard({required this.isLogin});
+
+  final bool isLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(36),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE7EBF3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 36,
+                width: 36,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.hub, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Text('Ego Proxy', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            isLogin ? 'Reprenez votre graphe familial.' : 'Créez votre espace de confiance.',
+            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Centralisez les relations, documents et validations dans un espace sécurisé.',
+            style: TextStyle(color: Colors.black54, fontSize: 15),
+          ),
+          const SizedBox(height: 24),
+          const _AuthBulletRow(label: 'Graphe centré et interactif'),
+          const SizedBox(height: 10),
+          const _AuthBulletRow(label: 'Vérifications et fiabilité'),
+          const SizedBox(height: 10),
+          const _AuthBulletRow(label: 'Documents et preuves'),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF6F7FA),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.lock_outline, size: 20, color: Colors.black54),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Chiffrement et contrôle granulaire des accès.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoginCard extends StatelessWidget {
+  const _LoginCard({required this.onSignedIn, required this.onToggle});
+
+  final VoidCallback onSignedIn;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const ValueKey('login'),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Connexion', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            const Text('Accédez à votre espace Ego Proxy.', style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 20),
+            const TextField(
+              decoration: InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 12),
+            const TextField(
+              obscureText: true,
+              decoration: InputDecoration(labelText: 'Mot de passe'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Checkbox(value: true, onChanged: (_) {}),
+                const Expanded(child: Text('Se souvenir de moi')),
+                TextButton(onPressed: () {}, child: const Text('Mot de passe oublié')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: onSignedIn,
+                child: const Text('Se connecter'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _AuthDivider(label: 'Ou'),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: onSignedIn,
+                child: const Text('Continuer avec Google'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('Pas de compte ? '),
+                TextButton(onPressed: onToggle, child: const Text('Créer un compte')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SignUpCard extends StatelessWidget {
+  const _SignUpCard({required this.onSignedIn, required this.onToggle});
+
+  final VoidCallback onSignedIn;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const ValueKey('signup'),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Créer un compte', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            const Text('Démarrez votre espace sécurisé.', style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 20),
+            const TextField(
+              decoration: InputDecoration(labelText: 'Nom complet'),
+            ),
+            const SizedBox(height: 12),
+            const TextField(
+              decoration: InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 12),
+            const TextField(
+              obscureText: true,
+              decoration: InputDecoration(labelText: 'Mot de passe'),
+            ),
+            const SizedBox(height: 12),
+            const TextField(
+              obscureText: true,
+              decoration: InputDecoration(labelText: 'Confirmer le mot de passe'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Checkbox(value: true, onChanged: (_) {}),
+                const Expanded(child: Text('J’accepte les conditions d’utilisation')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: onSignedIn,
+                child: const Text('Créer mon compte'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _AuthDivider(label: 'Ou'),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: onSignedIn,
+                child: const Text('Continuer avec Google'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('Déjà inscrit ? '),
+                TextButton(onPressed: onToggle, child: const Text('Se connecter')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthBulletRow extends StatelessWidget {
+  const _AuthBulletRow({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(label, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500)),
+        ),
+      ],
+    );
+  }
+}
+
+class _AuthDivider extends StatelessWidget {
+  const _AuthDivider({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Expanded(child: Divider(height: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(label.toUpperCase(), style: const TextStyle(fontSize: 11, color: Colors.black45)),
+        ),
+        const Expanded(child: Divider(height: 1)),
+      ],
+    );
+  }
+}
+
 class _PersonSheet extends StatefulWidget {
   const _PersonSheet({required this.person, required this.onUpdate});
 
@@ -2947,3 +2575,4 @@ void _showEditPersonSheet(
     subtitleController.dispose();
   });
 }
+*/

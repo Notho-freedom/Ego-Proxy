@@ -17,7 +17,7 @@ flutter run
 - Graphe : graphview
 - State : provider
 - UI : animations, modal_bottom_sheet
-- Documents/OCR : file_picker, google_ml_kit
+- Documents/OCR : file_picker, google_ml_kit, syncfusion_flutter_pdf (extraction PDF)
 - Auth : firebase_auth (avec firebase_core)
 - Notifications : flutter_local_notifications
 - Storage : hive, hive_flutter
@@ -43,6 +43,9 @@ flutter pub get
 
 4. OCR (mobile)
 	- `google_ml_kit` fonctionne sur Android/iOS (pas sur Web/Desktop).
+
+5. Extraction PDF (Web + mobile)
+	- `syncfusion_flutter_pdf` peut nécessiter une licence gratuite Community (Syncfusion).
 
 ## Structure rapide
 
