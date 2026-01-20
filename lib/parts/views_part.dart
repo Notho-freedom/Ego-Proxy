@@ -100,6 +100,8 @@ class _DocumentsViewBody extends StatefulWidget {
 
 class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
   bool _isLoading = true;
+  bool? _backendOk;
+  String? _backendError;
   final List<_DocumentItem> _documents = [
     const _DocumentItem(title: 'Acte de naissance', status: _DocStatus.approved),
     const _DocumentItem(title: 'Livret de famille', status: _DocStatus.pending),
@@ -126,6 +128,52 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
         _documents.insert(0, _DocumentItem(title: title, status: status));
       });
     });
+  }
+
+  String _backendBaseUrl() {
+    const env = String.fromEnvironment('BACKEND_URL');
+    if (env.isNotEmpty) {
+      return env;
+    }
+    if (kIsWeb) {
+      final base = Uri.base;
+      final scheme = base.scheme.isEmpty ? 'http' : base.scheme;
+      final host = base.host.isEmpty ? 'localhost' : base.host;
+      return '$scheme://$host:4000';
+    }
+    return 'http://10.0.2.2:4000';
+  }
+
+  String _backendDevKey() {
+    return const String.fromEnvironment('BACKEND_DEV_KEY', defaultValue: 'dev');
+  }
+
+  Future<void> _checkBackend() async {
+    try {
+      final response = await http.get(Uri.parse('${_backendBaseUrl()}/health'));
+      if (!mounted) {
+        return;
+      }
+      if (response.statusCode == 200) {
+        setState(() {
+          _backendOk = true;
+          _backendError = null;
+        });
+      } else {
+        setState(() {
+          _backendOk = false;
+          _backendError = 'HTTP ${response.statusCode}';
+        });
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _backendOk = false;
+        _backendError = error.toString();
+      });
+    }
   }
 
   Future<void> _pickAndExtract() async {
@@ -172,9 +220,7 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
       fileName: fileName,
       extraction: extraction,
       onConfirm: () {
-        setState(() {
-          _documents.insert(0, _DocumentItem(title: extraction.title, status: _DocStatus.pending));
-        });
+        _commitToBackend(file, extraction);
       },
     );
   }
@@ -228,7 +274,15 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
       }
     } else {
       if (kIsWeb) {
-        warning = 'OCR image non disponible sur Web pour le moment.';
+        final bytes = file.bytes;
+        if (bytes == null) {
+          warning = 'Impossible de lire l’image.';
+        } else {
+          extractedText = (await recognizeWebOcr(bytes)) ?? '';
+          if (extractedText.trim().isEmpty) {
+            warning = 'OCR Web indisponible ou vide.';
+          }
+        }
       } else if (file.path == null) {
         warning = 'Impossible d’accéder à l’image.';
       } else {
@@ -240,6 +294,13 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
       return _simulateExtraction(file.name, note: warning ?? 'Aucun texte détecté.');
     }
 
+    final backend = await _extractFromBackend(file.name, extractedText);
+    if (backend != null) {
+      debugPrint('>>> Using BACKEND extraction result: ${backend.title}');
+      return backend;
+    }
+    
+    debugPrint('>>> Backend returned null, using LOCAL fallback');
     final hints = await _extractEntities(extractedText);
     return _extractFromText(
       fileName: file.name,
@@ -247,6 +308,118 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
       note: warning,
       hints: hints,
     );
+  }
+
+  Future<_ExtractionResult?> _extractFromBackend(String fileName, String text) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${_backendBaseUrl()}/ocr/text'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-dev-key': _backendDevKey(),
+        },
+        body: jsonEncode({'fileName': fileName, 'text': text}),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('OCR backend error: ${response.statusCode} ${response.body}');
+        if (mounted) {
+          setState(() {
+            _backendOk = false;
+            _backendError = 'OCR HTTP ${response.statusCode}';
+          });
+        }
+        return null;
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint('=== OCR BACKEND RESPONSE ===');
+      debugPrint('Title: ${data['title']}');
+      debugPrint('Confidence: ${data['confidence']}');
+      debugPrint('ExtractionMethod: ${data['extractionMethod']}');
+      debugPrint('Fields count: ${(data['fields'] as List?)?.length}');
+      for (final f in (data['fields'] as List? ?? [])) {
+        debugPrint('  ${f['label']}: ${f['value']} (${f['confidence']})');
+      }
+      debugPrint('============================');
+      
+      if (mounted) {
+        setState(() {
+          _backendOk = true;
+          _backendError = null;
+        });
+      }
+      final fields = (data['fields'] as List<dynamic>)
+          .map((field) => _ExtractionField(
+                label: field['label'] as String,
+                value: field['value'] as String,
+                confidence: (field['confidence'] as num).toDouble(),
+              ))
+          .toList();
+      
+      debugPrint('>>> Returning backend result with ${fields.length} fields');
+      return _ExtractionResult(
+        title: data['title'] as String,
+        confidence: (data['confidence'] as num).toDouble(),
+        fields: fields,
+        snippet: data['snippet'] as String?,
+      );
+    } catch (e, stack) {
+      debugPrint('!!! OCR Backend exception: $e');
+      debugPrint('Stack: $stack');
+      if (mounted) {
+        setState(() {
+          _backendOk = false;
+          _backendError = 'OCR error: $e';
+        });
+      }
+      return null;
+    }
+  }
+
+  Future<void> _commitToBackend(PlatformFile file, _ExtractionResult extraction) async {
+    _showExtractionLoader();
+    try {
+      final uri = Uri.parse('${_backendBaseUrl()}/documents/upload');
+      final request = http.MultipartRequest('POST', uri)
+        ..headers['x-dev-key'] = _backendDevKey()
+        ..fields['title'] = extraction.title
+        ..fields['extracted'] = jsonEncode({
+          for (final field in extraction.fields) field.label: field.value,
+        });
+
+      final bytes = file.bytes ?? await readFileBytes(file.path);
+      if (bytes == null) {
+        throw Exception('Impossible de lire le fichier.');
+      }
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: file.name,
+        contentType: null,
+      ));
+
+      final response = await request.send();
+      debugPrint('Upload backend status: ${response.statusCode}');
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Upload backend échoué.');
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _documents.insert(0, _DocumentItem(title: extraction.title, status: _DocStatus.pending));
+      });
+      _hideExtractionLoader();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _hideExtractionLoader();
+      _showInfoSnackBar('Backend indisponible, document ajouté localement.');
+      setState(() {
+        _documents.insert(0, _DocumentItem(title: extraction.title, status: _DocStatus.pending));
+      });
+    }
   }
 
   String _extractTextFromPdf(Uint8List bytes) {
@@ -273,19 +446,26 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
   }) {
     final lower = text.toLowerCase();
     final mrz = _extractMrz(text);
+    final labeled = _extractLabeledFields(text);
+    final surname = labeled['Nom'];
+    final given = labeled['Prénoms'];
+    final name = mrz?.name ?? _sanitizeName(_combineName(surname, given)) ?? _extractName(text);
+    final date = mrz?.birthDate ?? labeled['Date de naissance'] ?? hints?.date ?? _extractDate(text);
+    final location = labeled['Lieu de naissance'] ?? hints?.location ?? _extractLocation(text);
+    final nationality = labeled['Nationalité'];
+    final sex = labeled['Sexe'];
+    final idNumber = mrz?.documentNumber ?? labeled['Numéro document'] ?? _extractIdNumber(text);
     final type = _inferDocType(lower, hasMrz: mrz != null);
-    final name = mrz?.name ?? _extractName(text);
-    final date = mrz?.birthDate ?? hints?.date ?? _extractDate(text);
-    final location = hints?.location ?? _extractLocation(text);
-    final idNumber = mrz?.documentNumber ?? _extractIdNumber(text);
 
     final fields = <_ExtractionField>[
       _ExtractionField(label: 'Fichier', value: fileName, confidence: 1),
       _ExtractionField(label: 'Type', value: type, confidence: 0.9),
-      _ExtractionField(label: 'Nom', value: name ?? 'Non détecté', confidence: name == null ? 0.4 : 0.86),
-      _ExtractionField(label: 'Date', value: date ?? 'Non détectée', confidence: date == null ? 0.4 : 0.8),
-      _ExtractionField(label: 'Lieu', value: location ?? 'Non détecté', confidence: location == null ? 0.4 : 0.76),
-      _ExtractionField(label: 'Identifiant', value: idNumber ?? 'Non détecté', confidence: idNumber == null ? 0.4 : 0.78),
+      _ExtractionField(label: 'Nom', value: name ?? 'Non détecté', confidence: name == null ? 0.4 : 0.9),
+      _ExtractionField(label: 'Date de naissance', value: date ?? 'Non détectée', confidence: date == null ? 0.4 : 0.88),
+      _ExtractionField(label: 'Lieu de naissance', value: location ?? 'Non détecté', confidence: location == null ? 0.4 : 0.82),
+      _ExtractionField(label: 'Nationalité', value: nationality ?? 'Non détectée', confidence: nationality == null ? 0.4 : 0.82),
+      _ExtractionField(label: 'Sexe', value: sex ?? 'Non détecté', confidence: sex == null ? 0.4 : 0.78),
+      _ExtractionField(label: 'Numéro document', value: idNumber ?? 'Non détecté', confidence: idNumber == null ? 0.4 : 0.86),
     ];
 
     final hits = fields.where((field) => field.confidence >= 0.75).length;
@@ -298,6 +478,82 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
       snippet: _buildSnippet(text),
       note: note,
     );
+  }
+
+  String? _combineName(String? surname, String? given) {
+    if (surname == null && given == null) {
+      return null;
+    }
+    return [surname, given].where((part) => part != null && part!.trim().isNotEmpty).map((part) => part!.trim()).join(' ');
+  }
+
+  Map<String, String> _extractLabeledFields(String text) {
+    final lines = text.split(RegExp(r'\r?\n')).map((line) => line.trim()).where((line) => line.isNotEmpty);
+    final result = <String, String>{};
+
+    for (final line in lines) {
+      final match = RegExp(r'^([A-Za-zÀ-ÿ/ ]{3,})\s*[:\-]\s*(.+)$').firstMatch(line) ??
+          RegExp(r'^([A-Za-zÀ-ÿ/ ]{3,})\s{2,}(.+)$').firstMatch(line);
+      if (match == null) {
+        continue;
+      }
+      final rawLabel = match.group(1)?.trim() ?? '';
+      final value = match.group(2)?.trim() ?? '';
+      final key = _normalizeLabel(rawLabel);
+      if (key != null && value.isNotEmpty && !result.containsKey(key)) {
+        result[key] = value;
+      }
+    }
+
+    return result;
+  }
+
+  String? _normalizeLabel(String label) {
+    final cleaned = _normalizeText(label);
+    if (cleaned.contains('nom') || cleaned.contains('surname')) return 'Nom';
+    if (cleaned.contains('prenom') || cleaned.contains('given name')) return 'Prénoms';
+    if (cleaned.contains('date de naissance') || cleaned.contains('date of birth') || cleaned == 'birth') return 'Date de naissance';
+    if (cleaned.contains('lieu de naissance') || cleaned.contains('place of birth') || cleaned.contains('birth place')) return 'Lieu de naissance';
+    if (cleaned.contains('nationalite') || cleaned.contains('nationality')) return 'Nationalité';
+    if (cleaned.contains('sexe') || cleaned.contains('sex')) return 'Sexe';
+    if (cleaned.contains('numero') || cleaned.contains('no') || cleaned.contains('id') || cleaned.contains('passport') || cleaned.contains('document')) {
+      return 'Numéro document';
+    }
+    return null;
+  }
+
+  String _normalizeText(String input) {
+    final lower = input.toLowerCase();
+    const map = {
+      'à': 'a',
+      'â': 'a',
+      'ä': 'a',
+      'á': 'a',
+      'ã': 'a',
+      'å': 'a',
+      'ç': 'c',
+      'é': 'e',
+      'è': 'e',
+      'ê': 'e',
+      'ë': 'e',
+      'í': 'i',
+      'ì': 'i',
+      'î': 'i',
+      'ï': 'i',
+      'ñ': 'n',
+      'ó': 'o',
+      'ò': 'o',
+      'ô': 'o',
+      'ö': 'o',
+      'ú': 'u',
+      'ù': 'u',
+      'û': 'u',
+      'ü': 'u',
+      'ÿ': 'y',
+      'œ': 'oe',
+      'æ': 'ae',
+    };
+    return lower.split('').map((char) => map[char] ?? char).join();
   }
 
   String _inferDocType(String lower, {bool hasMrz = false}) {
@@ -556,38 +812,89 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 520;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text('Documents & preuves', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
-              ),
-              AbsorbPointer(
-                absorbing: _isLoading,
-                child: Opacity(
-                  opacity: _isLoading ? 0.5 : 1,
-                  child: Row(
-                    children: [
-                      FilledButton.icon(
-                        onPressed: _pickAndExtract,
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('Uploader'),
+          if (isNarrow)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Documents & preuves', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (_backendOk != null)
+                      _StatusChip(
+                        label: _backendOk == true ? 'Backend connecté' : 'Backend indisponible',
+                        color: _backendOk == true ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
                       ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        onPressed: _openAddDocumentSheet,
-                        child: const Text('Saisie manuelle'),
+                    AbsorbPointer(
+                      absorbing: _isLoading,
+                      child: Opacity(
+                        opacity: _isLoading ? 0.5 : 1,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: _pickAndExtract,
+                              icon: const Icon(Icons.upload_file),
+                              label: const Text('Uploader'),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: _openAddDocumentSheet,
+                              child: const Text('Saisie manuelle'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('Documents & preuves', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+                ),
+                if (_backendOk != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: _StatusChip(
+                      label: _backendOk == true ? 'Backend connecté' : 'Backend indisponible',
+                      color: _backendOk == true ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                    ),
+                  ),
+                AbsorbPointer(
+                  absorbing: _isLoading,
+                  child: Opacity(
+                    opacity: _isLoading ? 0.5 : 1,
+                    child: Row(
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _pickAndExtract,
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text('Uploader'),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: _openAddDocumentSheet,
+                          child: const Text('Saisie manuelle'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,

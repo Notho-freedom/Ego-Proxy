@@ -49,6 +49,7 @@ dependencies:
   flutter_svg: ^2.0.10
   shimmer: ^3.0.0
   flutter_spinkit: ^5.2.0
+  http: ^1.2.2
   syncfusion_flutter_pdf: ^25.2.7
   syncfusion_flutter_core: ^25.2.7
 

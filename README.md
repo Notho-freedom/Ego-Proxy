@@ -51,4 +51,34 @@ flutter pub get
 
 - UI principale et données de démonstration : lib/main.dart
 
+## Backend (NestJS + Supabase)
+
+Backend local dans [backend](backend). Il gère :
+
+- Auth (via token Supabase)
+- Upload de documents (URL signée)
+- OCR/Extraction à partir de texte
+
+### Démarrage
+
+1. Copier `.env.example` vers `.env` et renseigner `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
+2. Installer les deps :
+
+```bash
+cd backend
+npm install
+npm run start:dev
+```
+
+Endpoints :
+- `GET /health`
+- `POST /documents/upload-url`
+- `POST /documents/commit`
+- `POST /documents/upload`
+- `POST /ocr/text`
+
+### Auth dev locale
+
+Pour contourner l’auth Supabase en local, ajoute `DEV_KEY=dev` dans le `.env` et envoie l’en-tête `x-dev-key: dev`.
+
 Remplace les données de SampleData et branche l’API quand prêt.
