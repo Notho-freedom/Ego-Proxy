@@ -1,7 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
-void main() {
+final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+  await _initializeNotifications();
   runApp(const EgoProxyApp());
+}
+
+Future<void> _initializeNotifications() async {
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const darwinSettings = DarwinInitializationSettings();
+  const settings = InitializationSettings(
+    android: androidSettings,
+    iOS: darwinSettings,
+    macOS: darwinSettings,
+  );
+  await _notificationsPlugin.initialize(settings);
 }
 
 class EgoProxyApp extends StatelessWidget {
@@ -266,6 +285,25 @@ class _Sidebar extends StatelessWidget {
             selectedIndex: selectedIndex,
             onTap: onSelect,
           ),
+          const SizedBox(height: 16),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Actions rapides', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+          ),
+          _SidebarQuickActions(
+            onAddRelation: () => onSelect(0),
+            onImport: () {},
+            onShare: () {},
+          ),
+          const SizedBox(height: 16),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text('Progression', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: _SidebarProgressCard(value: 0.62),
+          ),
           const Spacer(),
           const Padding(
             padding: EdgeInsets.all(16),
@@ -328,6 +366,84 @@ class _NavTile extends StatelessWidget {
   }
 }
 
+class _SidebarQuickActions extends StatelessWidget {
+  const _SidebarQuickActions({
+    required this.onAddRelation,
+    required this.onImport,
+    required this.onShare,
+  });
+
+  final VoidCallback onAddRelation;
+  final VoidCallback onImport;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.icon(
+            onPressed: onAddRelation,
+            icon: const Icon(Icons.add),
+            label: const Text('Ajouter relation'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: onImport,
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Importer'),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: onShare,
+            icon: const Icon(Icons.share_outlined),
+            label: const Text('Partager'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarProgressCard extends StatelessWidget {
+  const _SidebarProgressCard({required this.value});
+
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = (value * 100).round();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F7FB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5EAF4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Arbre complété', style: TextStyle(color: Colors.black.withAlpha(160), fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 8,
+              backgroundColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('$percent% de données vérifiées', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
 class _DashboardContent extends StatelessWidget {
   const _DashboardContent({required this.selectedIndex});
 
@@ -365,6 +481,7 @@ class _GraphViewState extends State<_GraphView> {
 
   String _rootId = 'me';
   String? _hoveredBranchId;
+  bool _showFocusRing = false;
 
   void _openPersonSheet(BuildContext context, Person person) {
     showModalBottomSheet<void>(
@@ -404,9 +521,11 @@ class _GraphViewState extends State<_GraphView> {
 
   void _resetView() {
     _transformController.value = Matrix4.identity();
+    _flashCenter();
   }
 
   void _centerOnNode(Offset position) {
+    _flashCenter();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final box = _viewerKey.currentContext?.findRenderObject() as RenderBox?;
       if (box == null) {
@@ -416,6 +535,15 @@ class _GraphViewState extends State<_GraphView> {
       final target = Offset(viewportSize.width / 2, viewportSize.height / 2);
       final translation = target - position;
       _transformController.value = Matrix4.identity()..translate(translation.dx, translation.dy);
+    });
+  }
+
+  void _flashCenter() {
+    setState(() => _showFocusRing = true);
+    Future<void>.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        setState(() => _showFocusRing = false);
+      }
     });
   }
   List<Person> _parentsOf(String id) {
@@ -462,6 +590,12 @@ class _GraphViewState extends State<_GraphView> {
   void _setRoot(String id) {
     setState(() => _rootId = id);
     _resetView();
+  }
+
+  Person get _rootPerson => _personById(_rootId) ?? SampleData.me;
+
+  int _relatedCount(String id) {
+    return _relations.where((rel) => rel.fromId == id || rel.toId == id).length;
   }
 
   Person? _personById(String id) {
@@ -520,6 +654,7 @@ class _GraphViewState extends State<_GraphView> {
 
   @override
   Widget build(BuildContext context) {
+    final root = _rootPerson;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -546,11 +681,55 @@ class _GraphViewState extends State<_GraphView> {
           ),
           const SizedBox(height: 12),
           const _GraphLegend(),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  child: Text(root.name.substring(0, 1), style: const TextStyle(color: Colors.white)),
+                ),
+                label: Text('Centre: ${root.name}'),
+              ),
+              _CountChip(label: 'Relations', count: _relatedCount(_rootId)),
+            ],
+          ),
           const SizedBox(height: 16),
           Expanded(
             child: Card(
               child: Stack(
                 children: [
+                  Positioned(
+                    left: _canvasSize.width / 2 - 100,
+                    top: _canvasSize.height / 2 - 100,
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 250),
+                        opacity: _showFocusRing ? 1 : 0,
+                        child: AnimatedScale(
+                          duration: const Duration(milliseconds: 350),
+                          scale: _showFocusRing ? 1 : 0.92,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: const Color(0xFF1A73E8).withAlpha(70), width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF1A73E8).withAlpha(25),
+                                  blurRadius: 32,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                   Positioned.fill(
                     child: InteractiveViewer(
                       transformationController: _transformController,
@@ -625,6 +804,38 @@ class _GraphViewState extends State<_GraphView> {
                       ],
                     ),
                   ),
+                  Positioned(
+                    left: 16,
+                    bottom: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(230),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE3E7F2)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(10),
+                            blurRadius: 12,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.pan_tool_alt_outlined, size: 16, color: Colors.black54),
+                          SizedBox(width: 6),
+                          Text('Glisser pour déplacer · Molette pour zoomer', style: TextStyle(color: Colors.black54)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Positioned(
+                    left: 16,
+                    top: 16,
+                    child: _GraphMiniLegend(),
+                  ),
                 ],
               ),
             ),
@@ -677,6 +888,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: parents.isNotEmpty ? _namesPreview(parents) : 'Ajouter',
         targets: parents,
         position: center + const Offset(0, -220),
+        color: _branchColor('parents'),
       ),
       _BranchNodeData(
         id: 'grandparents',
@@ -684,6 +896,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: grandParents.isNotEmpty ? _namesPreview(grandParents) : 'Ajouter',
         targets: grandParents,
         position: center + const Offset(0, -340),
+        color: _branchColor('grandparents'),
       ),
       _BranchNodeData(
         id: 'brother',
@@ -691,6 +904,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: siblings.isNotEmpty ? _namesPreview(siblings) : 'Ajouter',
         targets: siblings,
         position: center + const Offset(-260, -20),
+        color: _branchColor('brother'),
       ),
       _BranchNodeData(
         id: 'sister',
@@ -698,6 +912,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: siblings.isNotEmpty ? _namesPreview(siblings) : 'Ajouter',
         targets: siblings,
         position: center + const Offset(-260, 60),
+        color: _branchColor('sister'),
       ),
       _BranchNodeData(
         id: 'partner',
@@ -705,6 +920,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: partners.isNotEmpty ? _namesPreview(partners) : 'Ajouter',
         targets: partners,
         position: center + const Offset(260, 0),
+        color: _branchColor('partner'),
       ),
       _BranchNodeData(
         id: 'children',
@@ -712,6 +928,7 @@ class _RecursiveGraph extends StatelessWidget {
         subtitle: children.isNotEmpty ? _namesPreview(children) : 'Ajouter',
         targets: children,
         position: center + const Offset(0, 260),
+        color: _branchColor('children'),
       ),
     ];
 
@@ -722,6 +939,7 @@ class _RecursiveGraph extends StatelessWidget {
             painter: _GraphLinesPainter(
               center: center,
               branches: branches,
+              hoveredId: hoveredId,
             ),
           ),
         ),
@@ -730,12 +948,14 @@ class _RecursiveGraph extends StatelessWidget {
           position: center,
           onTap: () => onOpenSheet(root),
         ),
-        for (final branch in branches)
+        for (var i = 0; i < branches.length; i++)
           _RelationBranchBubble(
-            data: branch,
-            isHovered: hoveredId == branch.id,
-            onHover: (value) => onHover(value ? branch.id : null),
+            data: branches[i],
+            isHovered: hoveredId == branches[i].id,
+            delayMs: 80 * i,
+            onHover: (value) => onHover(value ? branches[i].id : null),
             onTap: () {
+              final branch = branches[i];
               if (branch.targets.isEmpty) {
                 onAddRelation(branch.id);
                 return;
@@ -760,6 +980,7 @@ class _BranchNodeData {
     required this.subtitle,
     required this.targets,
     required this.position,
+    required this.color,
   });
 
   final String id;
@@ -767,6 +988,7 @@ class _BranchNodeData {
   final String subtitle;
   final List<Person> targets;
   final Offset position;
+  final Color color;
 }
 
 String _namesPreview(List<Person> people) {
@@ -779,7 +1001,24 @@ String _namesPreview(List<Person> people) {
   return '${people.first.name} +${people.length - 1}';
 }
 
-class _CenterPersonCard extends StatelessWidget {
+Color _branchColor(String branchId) {
+  switch (branchId) {
+    case 'parents':
+    case 'grandparents':
+      return const Color(0xFFB8C7F3);
+    case 'brother':
+    case 'sister':
+      return const Color(0xFFB5E5C8);
+    case 'partner':
+      return const Color(0xFFF2B5B5);
+    case 'children':
+      return const Color(0xFFB8C7F3);
+    default:
+      return const Color(0xFFE3E7F2);
+  }
+}
+
+class _CenterPersonCard extends StatefulWidget {
   const _CenterPersonCard({
     required this.person,
     required this.position,
@@ -791,41 +1030,80 @@ class _CenterPersonCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_CenterPersonCard> createState() => _CenterPersonCardState();
+}
+
+class _CenterPersonCardState extends State<_CenterPersonCard> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
+    _scale = Tween<double>(begin: 0.985, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine),
+    );
+    _controller.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     const size = 160.0;
     return Positioned(
-      left: position.dx - size / 2,
-      top: position.dy - size / 2,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: size,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F0FE),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFF1A73E8), width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(20),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
+      left: widget.position.dx - size / 2,
+      top: widget.position.dy - size / 2,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              width: size,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F0FE),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFF1A73E8), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF1A73E8).withAlpha(35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 12),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withAlpha(20),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 26,
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: Text(person.name.substring(0, 1), style: const TextStyle(color: Colors.white, fontSize: 18)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    child: Text(widget.person.name.substring(0, 1), style: const TextStyle(color: Colors.white, fontSize: 18)),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(widget.person.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.person.subtitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, color: Colors.black54),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
-              Text(person.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text(person.subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: Colors.black54)),
-            ],
+            ),
           ),
         ),
       ),
@@ -837,12 +1115,14 @@ class _RelationBranchBubble extends StatelessWidget {
   const _RelationBranchBubble({
     required this.data,
     required this.isHovered,
+    required this.delayMs,
     required this.onHover,
     required this.onTap,
   });
 
   final _BranchNodeData data;
   final bool isHovered;
+  final int delayMs;
   final ValueChanged<bool> onHover;
   final VoidCallback onTap;
 
@@ -851,56 +1131,133 @@ class _RelationBranchBubble extends StatelessWidget {
     return Positioned(
       left: data.position.dx - 90,
       top: data.position.dy - 36,
-      child: MouseRegion(
-        onEnter: (_) => onHover(true),
-        onExit: (_) => onHover(false),
-        child: GestureDetector(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE3E7F2)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(isHovered ? 25 : 12),
-                  blurRadius: isHovered ? 16 : 10,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor: Theme.of(context).colorScheme.primary.withAlpha(30),
-                  child: Icon(
-                    data.targets.isEmpty ? Icons.add : Icons.people,
-                    size: 14,
-                    color: Theme.of(context).colorScheme.primary,
+      child: _StaggeredAppear(
+        delayMs: delayMs,
+        child: MouseRegion(
+          onEnter: (_) => onHover(true),
+          onExit: (_) => onHover(false),
+          child: GestureDetector(
+            onTap: onTap,
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 140),
+              scale: isHovered ? 1.03 : 1,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 140),
+                opacity: isHovered ? 1 : 0.92,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: data.color.withAlpha(120)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(isHovered ? 25 : 12),
+                        blurRadius: isHovered ? 16 : 10,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: data.color.withAlpha(28),
+                        child: Icon(
+                          data.targets.isEmpty ? Icons.add : Icons.people,
+                          size: 14,
+                          color: data.color,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(data.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 2),
+                          Text(data.subtitle, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                        ],
+                      ),
+                      if (data.targets.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: data.color.withAlpha(18),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${data.targets.length}',
+                            style: TextStyle(
+                              color: data.color,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      if (data.targets.length > 1)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 6),
+                          child: Icon(Icons.expand_more, size: 16, color: Colors.black45),
+                        ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(data.label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(data.subtitle, style: const TextStyle(fontSize: 10, color: Colors.black54)),
-                  ],
-                ),
-                if (data.targets.length > 1)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Icon(Icons.expand_more, size: 16, color: Colors.black45),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _StaggeredAppear extends StatefulWidget {
+  const _StaggeredAppear({required this.child, required this.delayMs});
+
+  final Widget child;
+  final int delayMs;
+
+  @override
+  State<_StaggeredAppear> createState() => _StaggeredAppearState();
+}
+
+class _StaggeredAppearState extends State<_StaggeredAppear> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 320));
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _offset = Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+
+    Future<void>.delayed(Duration(milliseconds: widget.delayMs), () {
+      if (mounted) {
+        _controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _offset,
+        child: widget.child,
       ),
     );
   }
@@ -1152,18 +1509,23 @@ class _GraphLinesPainter extends CustomPainter {
   _GraphLinesPainter({
     required this.center,
     required this.branches,
+    required this.hoveredId,
   });
 
   final Offset center;
   final List<_BranchNodeData> branches;
+  final String? hoveredId;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFFCBD5F1)
       ..strokeWidth = 2;
 
     for (final branch in branches) {
+      final isHovered = hoveredId != null && branch.id == hoveredId;
+      paint
+        ..color = branch.color.withAlpha(isHovered ? 180 : 90)
+        ..strokeWidth = isHovered ? 2.6 : 1.6;
       canvas.drawLine(center, branch.position, paint);
     }
   }
@@ -1185,9 +1547,11 @@ class _GraphActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = const Color(0xFFE3E7F2);
+    final iconColor = Theme.of(context).colorScheme.primary;
     return Material(
       color: Colors.white,
-      shape: const CircleBorder(),
+      shape: CircleBorder(side: BorderSide(color: borderColor)),
       elevation: 1,
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -1197,7 +1561,7 @@ class _GraphActionButton extends StatelessWidget {
           child: SizedBox(
             height: 36,
             width: 36,
-            child: Icon(icon, size: 18, color: Colors.black87),
+            child: Icon(icon, size: 18, color: iconColor),
           ),
         ),
       ),
@@ -1218,6 +1582,63 @@ class _GraphLegend extends StatelessWidget {
         _LegendChip(label: 'Fratrie', color: Color(0xFFB5E5C8)),
         _LegendChip(label: 'Conjoint', color: Color(0xFFF2B5B5)),
         _LegendChip(label: 'Cliquez sur une branche', color: Color(0xFFE3E7F2)),
+      ],
+    );
+  }
+}
+
+class _GraphMiniLegend extends StatelessWidget {
+  const _GraphMiniLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(235),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE3E7F2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(10),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Wrap(
+        spacing: 10,
+        children: const [
+          _MiniLegendDot(label: 'Parent/Enfant', color: Color(0xFFB8C7F3)),
+          _MiniLegendDot(label: 'Fratrie', color: Color(0xFFB5E5C8)),
+          _MiniLegendDot(label: 'Conjoint', color: Color(0xFFF2B5B5)),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniLegendDot extends StatelessWidget {
+  const _MiniLegendDot({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
       ],
     );
   }
@@ -1272,8 +1693,29 @@ class _GridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _RelationsView extends StatelessWidget {
+class _RelationsView extends StatefulWidget {
   const _RelationsView();
+
+  @override
+  State<_RelationsView> createState() => _RelationsViewState();
+}
+
+class _RelationsViewState extends State<_RelationsView> {
+  bool _isLoading = true;
+
+  int _countRelations(RelationType type) {
+    return SampleData.relations.where((relation) => relation.type == type).length;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1283,25 +1725,49 @@ class _RelationsView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Relations directes', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _CountChip(label: 'Parents', count: _countRelations(RelationType.parent)),
+              _CountChip(label: 'Enfants', count: _countRelations(RelationType.child)),
+              _CountChip(label: 'Fratrie', count: _countRelations(RelationType.sibling)),
+              _CountChip(label: 'Conjoint', count: _countRelations(RelationType.partner)),
+            ],
+          ),
           const SizedBox(height: 12),
           Expanded(
-            child: ListView.separated(
-              itemCount: SampleData.relations.length,
-              separatorBuilder: (context, _) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final relation = SampleData.relations[index];
-                final from = SampleData.persons.firstWhere((p) => p.id == relation.fromId);
-                final to = SampleData.persons.firstWhere((p) => p.id == relation.toId);
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.link),
-                    title: Text('${from.name} → ${to.name}'),
-                    subtitle: Text(_relationLabel(relation.type)),
-                    trailing: const Icon(Icons.chevron_right),
+            child: _isLoading
+                ? ListView.separated(
+                    itemCount: 6,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, __) => const _ShimmerListTile(),
+                  )
+                : ListView.separated(
+                    itemCount: SampleData.relations.length,
+                    separatorBuilder: (context, _) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final relation = SampleData.relations[index];
+                      final from = SampleData.persons.firstWhere((p) => p.id == relation.fromId);
+                      final to = SampleData.persons.firstWhere((p) => p.id == relation.toId);
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.link),
+                          title: Text('${from.name} → ${to.name}'),
+                          subtitle: Text(_relationLabel(relation.type)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _RelationTypeChip(type: relation.type),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.chevron_right),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -1326,11 +1792,26 @@ class _DocumentsViewBody extends StatefulWidget {
 }
 
 class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
+  bool _isLoading = true;
   final List<_DocumentItem> _documents = [
     const _DocumentItem(title: 'Acte de naissance', status: _DocStatus.approved),
     const _DocumentItem(title: 'Livret de famille', status: _DocStatus.pending),
     const _DocumentItem(title: 'Pièce d\'identité', status: _DocStatus.rejected),
   ];
+
+  int _countDocuments(_DocStatus status) {
+    return _documents.where((doc) => doc.status == status).length;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
 
   void _openAddDocumentSheet() {
     _showAddDocumentSheet(context, (title, status) {
@@ -1352,28 +1833,50 @@ class _DocumentsViewBodyState extends State<_DocumentsViewBody> {
               const Expanded(
                 child: Text('Documents & preuves', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
               ),
-              FilledButton.icon(
-                onPressed: _openAddDocumentSheet,
-                icon: const Icon(Icons.upload_file),
-                label: const Text('Ajouter'),
+              AbsorbPointer(
+                absorbing: _isLoading,
+                child: Opacity(
+                  opacity: _isLoading ? 0.5 : 1,
+                  child: FilledButton.icon(
+                    onPressed: _openAddDocumentSheet,
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Ajouter'),
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _CountChip(label: 'Validés', count: _countDocuments(_DocStatus.approved), color: _DocStatus.approved.color),
+              _CountChip(label: 'En attente', count: _countDocuments(_DocStatus.pending), color: _DocStatus.pending.color),
+              _CountChip(label: 'Refusés', count: _countDocuments(_DocStatus.rejected), color: _DocStatus.rejected.color),
             ],
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: ListView.separated(
-              itemCount: _documents.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final doc = _documents[index];
-                return _DocumentTile(
-                  title: doc.title,
-                  status: doc.status.label,
-                  color: doc.status.color,
-                  chip: _StatusChip(label: doc.status.label, color: doc.status.color),
-                );
-              },
-            ),
+            child: _isLoading
+                ? ListView.separated(
+                    itemCount: 5,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, __) => const _ShimmerListTile(),
+                  )
+                : ListView.separated(
+                    itemCount: _documents.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final doc = _documents[index];
+                      return _DocumentTile(
+                        title: doc.title,
+                        status: doc.status.label,
+                        color: doc.status.color,
+                        chip: _StatusChip(label: doc.status.label, color: doc.status.color),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -1398,7 +1901,10 @@ class _DocumentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.description_outlined),
+        leading: CircleAvatar(
+          backgroundColor: color.withAlpha(18),
+          child: Icon(Icons.description_outlined, color: color),
+        ),
         title: Text(title),
         subtitle: Text(status, style: TextStyle(color: color)),
         trailing: Row(
@@ -1414,8 +1920,104 @@ class _DocumentTile extends StatelessWidget {
   }
 }
 
-class _SettingsView extends StatelessWidget {
+class _CountChip extends StatelessWidget {
+  const _CountChip({
+    required this.label,
+    required this.count,
+    this.color,
+  });
+
+  final String label;
+  final int count;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final chipColor = color?.withAlpha(28) ?? const Color(0xFFF1F3F6);
+    final borderColor = color?.withAlpha(80) ?? Colors.transparent;
+
+    return Chip(
+      label: Text('$label · $count'),
+      backgroundColor: chipColor,
+      side: BorderSide(color: borderColor),
+      labelStyle: TextStyle(color: color ?? Colors.black87, fontWeight: FontWeight.w600),
+    );
+  }
+}
+
+class _ShimmerListTile extends StatelessWidget {
+  const _ShimmerListTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = Colors.grey.shade200;
+    final highlightColor = Colors.grey.shade100;
+
+    return Shimmer.fromColors(
+      baseColor: baseColor,
+      highlightColor: highlightColor,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(color: baseColor, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: baseColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 160,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: baseColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 72,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: baseColor,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsView extends StatefulWidget {
   const _SettingsView();
+
+  @override
+  State<_SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends State<_SettingsView> {
+  bool _notifyMatches = true;
+  bool _notifyDocs = true;
+  bool _sharePublic = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1427,18 +2029,56 @@ class _SettingsView extends StatelessWidget {
           const Text('Paramètres', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
           const SizedBox(height: 12),
           Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Theme.of(context).colorScheme.primary.withAlpha(18),
+                child: Icon(Icons.tune, color: Theme.of(context).colorScheme.primary),
+              ),
+              title: const Text('Préférences générales'),
+              subtitle: const Text('Contrôlez la confidentialité et les alertes.'),
+              trailing: const Icon(Icons.chevron_right),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Confidentialité', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Card(
             child: Column(
-              children: const [
-                ListTile(
-                  leading: Icon(Icons.security_outlined),
-                  title: Text('Confidentialité'),
-                  subtitle: Text('Gérer les autorisations de partage'),
+              children: [
+                SwitchListTile(
+                  value: _sharePublic,
+                  onChanged: (value) => setState(() => _sharePublic = value),
+                  title: const Text('Partager l’arbre publiquement'),
+                  subtitle: const Text('Permettre l’accès en lecture via un lien.'),
                 ),
-                Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.notifications_outlined),
-                  title: Text('Notifications'),
-                  subtitle: Text('Alertes de matching et confirmations'),
+                const Divider(height: 1),
+                const ListTile(
+                  leading: Icon(Icons.security_outlined),
+                  title: Text('Gestion des accès'),
+                  subtitle: Text('Inviter des contributeurs et gérer les rôles.'),
+                  trailing: Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Notifications', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Card(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  value: _notifyMatches,
+                  onChanged: (value) => setState(() => _notifyMatches = value),
+                  title: const Text('Alertes de matching'),
+                  subtitle: const Text('Nouvelles correspondances et suggestions.'),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  value: _notifyDocs,
+                  onChanged: (value) => setState(() => _notifyDocs = value),
+                  title: const Text('Statuts des documents'),
+                  subtitle: const Text('Validation et demandes complémentaires.'),
                 ),
               ],
             ),
@@ -1459,6 +2099,19 @@ String _relationLabel(RelationType type) {
       return 'Fratrie';
     case RelationType.partner:
       return 'Conjoint';
+  }
+}
+
+Color _relationColor(RelationType type) {
+  switch (type) {
+    case RelationType.parent:
+      return const Color(0xFF1A73E8);
+    case RelationType.child:
+      return const Color(0xFF2E7D32);
+    case RelationType.sibling:
+      return const Color(0xFFF57C00);
+    case RelationType.partner:
+      return const Color(0xFF6A1B9A);
   }
 }
 
@@ -1545,6 +2198,36 @@ class _PersonSheetState extends State<_PersonSheet> {
                       ),
                       const SizedBox(height: 4),
                       Text(_person.subtitle, style: const TextStyle(color: Colors.black54)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (_person.id == 'me')
+                            const _InfoChip(
+                              icon: Icons.star_outline,
+                              label: 'Profil principal',
+                              color: Color(0xFF1A73E8),
+                            )
+                          else
+                            const _InfoChip(
+                              icon: Icons.group_outlined,
+                              label: 'Profil lié',
+                            ),
+                          if (_person.isVerified)
+                            const _InfoChip(
+                              icon: Icons.verified_outlined,
+                              label: 'Vérifié',
+                              color: Color(0xFF2E7D32),
+                            )
+                          else
+                            const _InfoChip(
+                              icon: Icons.info_outline,
+                              label: 'À confirmer',
+                              color: Color(0xFFF57C00),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1625,11 +2308,22 @@ class _PersonProfileTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       children: [
+        Row(
+          children: const [
+            Expanded(child: _StatCard(label: 'Relations', value: '7', icon: Icons.link)),
+            SizedBox(width: 12),
+            Expanded(child: _StatCard(label: 'Documents', value: '3', icon: Icons.description_outlined)),
+            SizedBox(width: 12),
+            Expanded(child: _StatCard(label: 'Confiance', value: 'Élevée', icon: Icons.verified_outlined)),
+          ],
+        ),
+        const SizedBox(height: 12),
         Card(
           child: ListTile(
             leading: const Icon(Icons.person_outline),
             title: const Text('Identité'),
             subtitle: Text(person.name),
+            trailing: const Icon(Icons.chevron_right),
           ),
         ),
         const SizedBox(height: 12),
@@ -1638,6 +2332,7 @@ class _PersonProfileTab extends StatelessWidget {
             leading: Icon(Icons.cake_outlined),
             title: Text('Date de naissance'),
             subtitle: Text('Renseignée'),
+            trailing: Icon(Icons.chevron_right),
           ),
         ),
         const SizedBox(height: 12),
@@ -1646,6 +2341,7 @@ class _PersonProfileTab extends StatelessWidget {
             leading: Icon(Icons.place_outlined),
             title: Text('Lieu'),
             subtitle: Text('Non renseigné'),
+            trailing: Icon(Icons.chevron_right),
           ),
         ),
         const SizedBox(height: 12),
@@ -1654,6 +2350,7 @@ class _PersonProfileTab extends StatelessWidget {
             leading: const Icon(Icons.verified_outlined),
             title: const Text('Niveau de confiance'),
             subtitle: Text(person.isVerified ? 'Élevé' : 'Moyen'),
+            trailing: const Icon(Icons.chevron_right),
           ),
         ),
       ],
@@ -1667,32 +2364,26 @@ class _PersonRelationsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      children: const [
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.family_restroom_outlined),
-            title: Text('Parents'),
-            subtitle: Text('2 relations confirmées'),
-            trailing: Icon(Icons.chevron_right),
-          ),
+      children: [
+        _RelationCategoryTile(
+          icon: Icons.family_restroom_outlined,
+          title: 'Parents',
+          subtitle: '2 relations confirmées',
+          chip: _StatusChip(label: 'Validé', color: const Color(0xFF2E7D32)),
         ),
-        SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.people_outline),
-            title: Text('Fratrie'),
-            subtitle: Text('1 relation proposée'),
-            trailing: Icon(Icons.chevron_right),
-          ),
+        const SizedBox(height: 12),
+        _RelationCategoryTile(
+          icon: Icons.people_outline,
+          title: 'Fratrie',
+          subtitle: '1 relation proposée',
+          chip: _StatusChip(label: 'À confirmer', color: const Color(0xFFF57C00)),
         ),
-        SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.favorite_border),
-            title: Text('Conjoint'),
-            subtitle: Text('1 relation confirmée'),
-            trailing: Icon(Icons.chevron_right),
-          ),
+        const SizedBox(height: 12),
+        _RelationCategoryTile(
+          icon: Icons.favorite_border,
+          title: 'Conjoint',
+          subtitle: '1 relation confirmée',
+          chip: _StatusChip(label: 'Validé', color: const Color(0xFF2E7D32)),
         ),
       ],
     );
@@ -1705,23 +2396,17 @@ class _PersonDocumentsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      children: const [
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.description_outlined),
-            title: Text('Acte de naissance'),
-            subtitle: Text('Validé'),
-            trailing: Icon(Icons.chevron_right),
-          ),
+      children: [
+        _DocumentCategoryTile(
+          title: 'Acte de naissance',
+          subtitle: 'Validé',
+          color: const Color(0xFF2E7D32),
         ),
-        SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: Icon(Icons.description_outlined),
-            title: Text('Livret de famille'),
-            subtitle: Text('En attente'),
-            trailing: Icon(Icons.chevron_right),
-          ),
+        const SizedBox(height: 12),
+        _DocumentCategoryTile(
+          title: 'Livret de famille',
+          subtitle: 'En attente',
+          color: const Color(0xFFF57C00),
         ),
       ],
     );
@@ -1764,6 +2449,172 @@ class _StatusChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(label, style: TextStyle(color: color, fontSize: 11)),
+    );
+  }
+}
+
+class _RelationTypeChip extends StatelessWidget {
+  const _RelationTypeChip({required this.type});
+
+  final RelationType type;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _relationColor(type);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withAlpha(18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _relationLabel(type),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5EAF4)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: Theme.of(context).colorScheme.primary.withAlpha(18),
+            child: Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RelationCategoryTile extends StatelessWidget {
+  const _RelationCategoryTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.chip,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget chip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            chip,
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DocumentCategoryTile extends StatelessWidget {
+  const _DocumentCategoryTile({
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  final String title;
+  final String subtitle;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withAlpha(18),
+          child: Icon(Icons.description_outlined, color: color),
+        ),
+        title: Text(title),
+        subtitle: Text(subtitle, style: TextStyle(color: color)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _StatusChip(label: subtitle, color: color),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+    this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedColor = color ?? Colors.black54;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: resolvedColor.withAlpha(18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: resolvedColor),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: resolvedColor, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 }
