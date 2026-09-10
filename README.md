@@ -1,84 +1,66 @@
-# Ego Proxy MVP
+# Ego-Proxy
 
-MVP Flutter pour un graphe généalogique centré utilisateur (ego graph). Cette version fournit :
+Flutter development proxy and debugging tools for cross-platform mobile applications.
 
-- Une UI navigable avec top bar, sidebar et zones principales.
-- Une vue « Arbre » statique avec nœuds et liens visuels.
-- Des vues « Relations », « Documents » et « Paramètres » en placeholder.
+## 🚀 Features
 
-## Lancer l’application
+- 🔧 **Proxy configuration** - Network proxy for Flutter debugging
+- 📱 **Multi-platform** - Android, iOS, Web, Desktop support
+- 🛠️ **DevTools integration** - Enhanced Flutter DevTools
+- 📊 **Network monitoring** - Inspect API calls and traffic
+- 🔍 **Backend probing** - Test backend endpoints from mobile
 
-```bash
-flutter run
-```
+## 🛠️ Tech Stack
 
-## Dépendances MVP intégrées
+- **Frontend**: Flutter (Dart)
+- **Backend**: Python (probe server)
+- **Platforms**: Android, iOS, macOS, Windows, Linux, Web
 
-- Graphe : graphview
-- State : provider
-- UI : animations, modal_bottom_sheet
-- Documents/OCR : file_picker, google_ml_kit, syncfusion_flutter_pdf (extraction PDF)
-- Auth : firebase_auth (avec firebase_core)
-- Notifications : flutter_local_notifications
-- Storage : hive, hive_flutter
-- Temps réel : web_socket_channel
-- UI polish : flutter_svg, shimmer, flutter_spinkit
+## 📁 Project Structure
 
-## Configuration requise
+`
+Ego-Proxy/
+├── lib/               # Dart/Flutter source code
+├── backend/           # Python backend probe
+├── android/           # Android native
+├── ios/               # iOS native
+├── linux/             # Linux desktop
+├── macos/             # macOS desktop
+├── windows/           # Windows desktop
+├── web/               # Web platform
+├── test/              # Unit tests
+└── pubspec.yaml       # Flutter dependencies
+`
 
-1. Installer les dépendances :
+## 🚀 Installation
 
-```bash
+`ash
+git clone https://github.com/Notho-freedom/Ego-Proxy.git
+cd Ego-Proxy
 flutter pub get
-```
+`
 
-2. Firebase (si activé)
-	- Créer un projet Firebase et ajouter les apps Android/iOS/Web.
-	- Placer `google-services.json` et `GoogleService-Info.plist` dans leurs dossiers.
-	- Générer `firebase_options.dart` via FlutterFire CLI si besoin.
+## 🏃 Running
 
-3. Notifications locales (Android)
-	- La permission `POST_NOTIFICATIONS` est déclarée dans le manifest.
-	- Demander l’autorisation côté app avant d’émettre des notifications.
+`ash
+# Run on connected device
+flutter run
 
-4. OCR (mobile)
-	- `google_ml_kit` fonctionne sur Android/iOS (pas sur Web/Desktop).
+# Run on specific platform
+flutter run -d chrome      # Web
+flutter run -d macos       # macOS
+flutter run -d windows     # Windows
+flutter run -d linux       # Linux
+`
 
-5. Extraction PDF (Web + mobile)
-	- `syncfusion_flutter_pdf` peut nécessiter une licence gratuite Community (Syncfusion).
+## 📊 Status
 
-## Structure rapide
+Active development. Core proxy and backend probe features implemented.
 
-- UI principale et données de démonstration : lib/main.dart
+## 👤 Author
 
-## Backend (NestJS + Supabase)
+[Notho-freedom](https://github.com/Notho-freedom)
 
-Backend local dans [backend](backend). Il gère :
+## 📄 License
 
-- Auth (via token Supabase)
-- Upload de documents (URL signée)
-- OCR/Extraction à partir de texte
-
-### Démarrage
-
-1. Copier `.env.example` vers `.env` et renseigner `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
-2. Installer les deps :
-
-```bash
-cd backend
-npm install
-npm run start:dev
-```
-
-Endpoints :
-- `GET /health`
-- `POST /documents/upload-url`
-- `POST /documents/commit`
-- `POST /documents/upload`
-- `POST /ocr/text`
-
-### Auth dev locale
-
-Pour contourner l’auth Supabase en local, ajoute `DEV_KEY=dev` dans le `.env` et envoie l’en-tête `x-dev-key: dev`.
-
-Remplace les données de SampleData et branche l’API quand prêt.
+MIT
